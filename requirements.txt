@@ -4,3 +4,6 @@ flask
 plotly
 pandas
 flask-session
+polars
+uv
+python-dotenv

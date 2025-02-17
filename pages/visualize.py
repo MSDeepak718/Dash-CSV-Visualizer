@@ -6,6 +6,7 @@ import base64
 import io
 from flask import session
 from dash.exceptions import PreventUpdate
+import polars as pl
 
 def read_csv_safely(file_path):
     encodings = ["utf-8", "latin1", "ISO-8859-1", "utf-8-sig"]
@@ -14,18 +15,19 @@ def read_csv_safely(file_path):
     for encoding in encodings:
         for delimiter in delimiters:
             try:
-                df = pd.read_csv(file_path, encoding=encoding, delimiter=delimiter, low_memory=False)
+                df = pl.read_csv(file_path, encoding=encoding, separator=delimiter)
                 if len(df.columns) > 1:
                     return df
-            except Exception as e:
+            except Exception:
                 continue
 
     raise ValueError("Failed to read the CSV file with common encodings and delimiters.")
 
+
 try:
     default_df = read_csv_safely('Superstore.csv')
 except Exception as e:
-    default_df = pd.DataFrame()
+    default_df = pl.DataFrame()
     print(f"Error loading default CSV: {e}")
 
 layout = html.Div(id="protected-content")
@@ -91,10 +93,8 @@ def parse_uploaded_file(contents):
     try:
         content_type, content_string = contents.split(',')
         decoded = base64.b64decode(content_string)
-        df = pd.read_csv(io.StringIO(decoded.decode("utf-8")), low_memory=False)
+        df = pl.read_csv(io.BytesIO(decoded))
         return df
-    except UnicodeDecodeError:
-        return pd.read_csv(io.StringIO(decoded.decode("latin1")), low_memory=False)
     except Exception as e:
         print(f"Error loading file: {e}")
         return default_df
@@ -108,12 +108,14 @@ def parse_uploaded_file(contents):
 )
 def update_dropdowns(contents):
     df = parse_uploaded_file(contents) if contents else default_df
-    numeric_columns = df.select_dtypes(include=['number']).columns.tolist()
+    
+    numeric_columns = [col for col in df.columns if df[col].dtype in [pl.Int32, pl.Int64, pl.Float32, pl.Float64]]
 
     if len(numeric_columns) < 2:
         return [], [], None, None
 
     return numeric_columns, numeric_columns, numeric_columns[0], numeric_columns[1]
+
 
 @callback(
     Output('content-container', 'children'),
@@ -133,7 +135,7 @@ def update_content(view, x_axis, y_axis, contents):
 
     return dash_table.DataTable(
         columns=[{"name": col, "id": col} for col in df.columns],
-        data=df.head(100).to_dict("records"),
+        data=df.head(100).to_dicts(),
 
         style_table={
             "maxHeight": "400px",
